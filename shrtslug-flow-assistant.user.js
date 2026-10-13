@@ -2,7 +2,7 @@
 // @name         LinkFlow — Link Assistant
 // @name:pt-BR   LinkFlow — Assistente de Links
 // @namespace    https://github.com/adestrador/shrtslug-flow-assistant
-// @version      1.5.0
+// @version      1.5.1
 // @description  Continues supported Shrtslug steps when ready, waits for site timers, and resumes after manual CAPTCHA verification.
 // @description:pt-BR Aguarda a contagem do site, aciona as etapas liberadas e retoma após CAPTCHA manual, sem painel no rodapé.
 // @author       tigerwong
@@ -33,6 +33,8 @@
 // @grant        unsafeWindow
 // @grant        GM.registerMenuCommand
 // @grant        GM.setClipboard
+// @grant        GM_registerMenuCommand
+// @grant        GM_setClipboard
 // @noframes
 // ==/UserScript==
 
@@ -59,7 +61,7 @@
         console.info(PREFIX, message);
     }
 
-    // Aplica a compatibilidade no documento da página, fora do contexto do Greasemonkey.
+    // Aplica a compatibilidade no documento da página, fora do contexto isolado do gerenciador.
     function installBackgroundCompatibility() {
         if (!BACKGROUND_COUNTDOWN) return;
         try {
@@ -347,14 +349,34 @@
         }, 100);
     }
 
+    // Aceita as duas famílias de APIs oferecidas pelos gerenciadores.
+    function registerMenuCommand(name, callback) {
+        if (typeof GM !== 'undefined' && typeof GM.registerMenuCommand === 'function') {
+            return GM.registerMenuCommand(name, callback);
+        }
+        if (typeof GM_registerMenuCommand === 'function') {
+            return GM_registerMenuCommand(name, callback);
+        }
+        return null;
+    }
+
+    async function copyToClipboard(text) {
+        if (typeof GM !== 'undefined' && typeof GM.setClipboard === 'function') {
+            await GM.setClipboard(text);
+        } else if (typeof GM_setClipboard === 'function') {
+            await GM_setClipboard(text);
+        } else {
+            await navigator.clipboard.writeText(text);
+        }
+    }
+
     function start() {
         // Remove apenas um painel residual da versão antiga nesta mesma página.
         document.getElementById('shrtslug-auto-status')?.remove();
-        if (typeof GM !== 'undefined' && typeof GM.registerMenuCommand === 'function') {
-            try {
-              GM.registerMenuCommand('LinkFlow: copiar diagnóstico', async () => {
+        try {
+            registerMenuCommand('LinkFlow: copiar diagnóstico', async () => {
                 const diagnosis = {
-                    version: '1.5.0', page: location.origin + location.pathname,
+                    version: '1.5.1', page: location.origin + location.pathname,
                     status: lastMessage,
                     controls: [...document.querySelectorAll('button, input[type="submit"], [role="button"]')]
                         .filter(visible).slice(0, 30).map(element => ({
@@ -371,17 +393,15 @@
                 };
                 const text = JSON.stringify(diagnosis, null, 2);
                 try {
-                    if (typeof GM.setClipboard === 'function') await GM.setClipboard(text);
-                    else await navigator.clipboard.writeText(text);
+                    await copyToClipboard(text);
                     alert('Diagnóstico copiado. Inclua-o no relato da etapa que travou.');
                 } catch (error) {
                     console.info(PREFIX, text);
                     alert('Não foi possível copiar. O diagnóstico foi registrado no console.');
                 }
-              });
-            } catch (error) {
-                console.warn(PREFIX, 'Menu de diagnóstico indisponível.', error);
-            }
+            });
+        } catch (error) {
+            console.warn(PREFIX, 'Menu de diagnóstico indisponível.', error);
         }
         const observer = new MutationObserver(schedule);
         observer.observe(document.documentElement, {
